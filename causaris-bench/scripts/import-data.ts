@@ -4,6 +4,36 @@ import path from "node:path";
 import type { ImportPayload } from "../lib/types";
 import { createSupabaseAdminClient } from "../lib/supabase";
 
+async function loadLocalEnv() {
+  const envPath = path.join(process.cwd(), ".env.local");
+
+  try {
+    const raw = await readFile(envPath, "utf8");
+
+    for (const line of raw.split(/\r?\n/)) {
+      const trimmed = line.trim();
+
+      if (!trimmed || trimmed.startsWith("#")) {
+        continue;
+      }
+
+      const separatorIndex = trimmed.indexOf("=");
+      if (separatorIndex === -1) {
+        continue;
+      }
+
+      const key = trimmed.slice(0, separatorIndex).trim();
+      const value = trimmed.slice(separatorIndex + 1).trim();
+
+      if (!process.env[key]) {
+        process.env[key] = value;
+      }
+    }
+  } catch {
+    // Ignore missing .env.local; runtime env vars can still satisfy the script.
+  }
+}
+
 async function loadPayload(): Promise<ImportPayload> {
   const sourcePath = path.join(process.cwd(), "public", "causaris_indices.json");
   const raw = await readFile(sourcePath, "utf8");
@@ -11,6 +41,7 @@ async function loadPayload(): Promise<ImportPayload> {
 }
 
 async function main() {
+  await loadLocalEnv();
   const supabase = createSupabaseAdminClient();
 
   if (!supabase) {
@@ -92,7 +123,12 @@ async function main() {
 }
 
 main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : "Neznana napaka pri uvozu.";
+  const message =
+    error instanceof Error
+      ? `${error.message}\n${error.stack ?? ""}`.trim()
+      : typeof error === "object" && error !== null
+        ? JSON.stringify(error, null, 2)
+        : String(error);
   console.error(message);
   process.exitCode = 1;
 });
